@@ -2,7 +2,9 @@
   (:require [clojure.edn :as edn]
             [clojure.pprint :as pprint]
             [clojure.string :as str]
+            [uml-viewer.application.metrics :as metrics]
             [uml-viewer.graph :as graph]
+            [uml-viewer.languages.external :as external]
             [uml-viewer.domain.policy :as policy]))
 
 (defn read-policy [path]
@@ -16,29 +18,58 @@
                  pprint/*print-right-margin* 90]
          (with-out-str (pprint/pprint doc)))))
 
-(defn document
-  "Scan source with `graph-impl` and apply `policy`. Returns the IR document."
+(defn- annotate
+  "The viewer reads `:lang` and `:src` off the IR to open the right file."
+  [doc policy]
+  (cond-> doc
+    (:lang policy) (assoc :lang (:lang policy))
+    true (assoc :src (or (:src policy) "src"))))
+
+(defn- build
+  "Scan and apply policy. `:members` is present for languages that report them."
   [graph-impl policy]
   (let [root (or (:src policy) "src")
         opts {:prefix (or (:prefix policy) "uml-viewer")}
         graph (graph/scan graph-impl root opts)]
-    (policy/apply-policy policy graph)))
+    {:graph graph
+     :doc (annotate (policy/apply-policy policy graph) policy)}))
+
+(defn document
+  "Scan source with `graph-impl` and apply `policy`. Returns the IR document."
+  [graph-impl policy]
+  (:doc (build graph-impl policy)))
 
 (defn generate
-  "Write the IR document for `policy-path` using `graph-impl`. Returns the output path."
-  ([graph-impl policy-path] (generate graph-impl policy-path nil))
-  ([graph-impl policy-path out-path]
+  "Write the IR document for `policy-path` using `graph-impl`. Returns the output path.
+   `opts` may include `:metrics-root` (default user.dir) for the static CRAP snapshot."
+  ([graph-impl policy-path] (generate graph-impl policy-path nil {}))
+  ([graph-impl policy-path out-path] (generate graph-impl policy-path out-path {}))
+  ([graph-impl policy-path out-path opts]
    (let [policy (read-policy policy-path)
-         graph (graph/scan graph-impl
-                           (or (:src policy) "src")
-                           {:prefix (or (:prefix policy) "uml-viewer")})
+         {:keys [graph doc]} (build graph-impl policy)
          extra (policy/unassigned policy graph)
-         doc (assoc (policy/apply-policy policy graph)
-               :policy-file policy-path)
-         out (or out-path (:out policy) "examples/uml-viewer.edn")]
+         doc (assoc doc :policy-file policy-path)
+         out (or out-path (:out policy) "examples/uml-viewer.edn")
+         members (:members graph)]
      (when (seq extra)
        (binding [*out* *err*]
          (println "Unassigned namespaces:"
                   (str/join ", " (map :ns extra)))))
+     (when (seq members)
+       (metrics/write-static! (or (:metrics-root opts)
+                                  (System/getProperty "user.dir"))
+                              members))
      (spit out (emit doc))
      out)))
+
+(defn generate-from-policy
+  "Pick the LanguageGraph registered for the policy `:lang` and write the IR."
+  ([policy-path] (generate-from-policy policy-path nil))
+  ([policy-path out-path]
+   (let [policy (read-policy policy-path)
+         lang (keyword (or (:lang policy) :clojure))
+         impl (or (graph/lookup lang)
+                  (throw (ex-info (str "no LanguageGraph for " lang) {:lang lang})))]
+     (when (#{:python :typescript} lang)
+       (external/write-agent-md! (System/getProperty "user.dir") lang))
+     (generate impl policy-path out-path {}))))

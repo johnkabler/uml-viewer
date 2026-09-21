@@ -4,8 +4,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-# __DEPS_LINE__ is replaced by get-uml-viewer.
+# __DEPS_LINE__ and __TOOL_HOME__ are replaced by get-uml-viewer.
 DEPS='__DEPS_LINE__'
+TOOL="${UML_VIEWER_HOME:-__TOOL_HOME__}"
+if [[ "$TOOL" == "__TOOL_HOME__" || -z "$TOOL" ]]; then
+  if [[ -d "$ROOT/analyzers/python" ]]; then
+    TOOL="$ROOT"
+  else
+    TOOL=""
+  fi
+fi
+export UML_VIEWER_HOME="$TOOL"
 
 edn_path() {
   local name base f
@@ -23,21 +32,57 @@ edn_path() {
       return
     done
   fi
+  if [[ -f uml-viewer.edn ]]; then
+    echo "uml-viewer.edn"
+  fi
+}
+
+clj_main() {
+  exec clj -Sdeps "$DEPS" -M -m "$@"
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  echo "usage: ./uml [--restart]" >&2
-  echo "  (no args)   fresh window; companion writes the diagram" >&2
-  echo "  --restart   new JVM, same companion; restores last view" >&2
+  echo "usage: ./uml [--restart | discover | ir | coverage | mutate]" >&2
+  echo "  (no args)    fresh window; companion writes the diagram" >&2
+  echo "  --restart    new JVM, same companion; restores last view" >&2
+  echo "  discover     write a hierarchical policy for this Python or TypeScript tree" >&2
+  echo "  ir           regenerate the IR from the policy" >&2
+  echo "  coverage F   import a coverage.py or Istanbul JSON file" >&2
+  echo "  mutate F     import a mutmut, Stryker, or normalized mutation report" >&2
   exit 0
 fi
+
+case "${1:-}" in
+  discover)
+    clj_main uml-viewer.main.discover
+    ;;
+  ir)
+    shift
+    clj_main uml-viewer.main.ir-generator "$@"
+    ;;
+  coverage)
+    shift
+    clj_main uml-viewer.main.metrics coverage "$@"
+    ;;
+  mutate)
+    shift
+    clj_main uml-viewer.main.metrics mutate "$@"
+    ;;
+esac
 
 if [[ "${1:-}" == "--restart" ]]; then
   path="$(edn_path)"
   if [[ -n "$path" ]]; then
-    exec clj -Sdeps "$DEPS" -M -m uml-viewer.main.uml-viewer --restart "$path"
+    clj_main uml-viewer.main.uml-viewer --restart "$path"
   fi
-  exec clj -Sdeps "$DEPS" -M -m uml-viewer.main.uml-viewer --restart
+  clj_main uml-viewer.main.uml-viewer --restart
 fi
 
-exec clj -Sdeps "$DEPS" -M -m uml-viewer.main.uml-viewer "$@"
+if [[ $# -eq 0 ]]; then
+  path="$(edn_path)"
+  if [[ -n "$path" ]]; then
+    clj_main uml-viewer.main.uml-viewer "$path"
+  fi
+fi
+
+clj_main uml-viewer.main.uml-viewer "$@"

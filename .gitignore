@@ -3,3 +3,6 @@
 target
 .DS_Store
 .uml-viewer/
+**/node_modules/
+**/.venv/
+**/__pycache__/

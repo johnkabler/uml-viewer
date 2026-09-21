@@ -1,0 +1,13 @@
+[tool.poetry]
+name = "uml-analyzer"
+version = "0.1.0"
+description = "Python source scanner for uml-viewer"
+authors = ["uml-viewer"]
+packages = [{include = "uml_analyzer"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

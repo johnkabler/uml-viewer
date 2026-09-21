@@ -13,7 +13,8 @@
             [uml-viewer.domain.mailbox :as mailbox]
             [uml-viewer.application.overlay :as overlay]
             [uml-viewer.adapters.source-window :as source-window]
-            [uml-viewer.domain.policy :as policy])
+            [uml-viewer.domain.policy :as policy]
+            [uml-viewer.languages.external :as external])
   (:import [java.awt Component Container Frame]
            [java.awt.event ActionListener]
            [javax.swing JMenuItem JOptionPane JPopupMenu SwingUtilities]
@@ -81,6 +82,15 @@
        "kills only this companion's tmux session, not other Grok agents. If\n"
        "this Grok process dies, tmux respawns it in the same pane.\n"
        "Do not commit or push unless asked.\n"))
+
+(defn rules-for
+  "Clojure projects keep the original companion text. Python and TypeScript
+   projects get the mailbox plus that language's regen and metrics commands."
+  [cwd]
+  (let [lang (external/detect-lang cwd)]
+    (if (#{:python :typescript} lang)
+      (external/agent-rules lang)
+      standing-rules)))
 
 (def launch-prompt
   (str "On launch: from this working directory, update the hierarchical policy "
@@ -164,7 +174,7 @@
     "-e" "GROK_THEME=terminal"
     "-e" "GROK_TERMINAL_THEME=1"
     "-e" "COLORTERM=truecolor"
-    (grok-executable) "--yolo" "--trust" "--rules" standing-rules
+    (grok-executable) "--yolo" "--trust" "--rules" (rules-for cwd)
     launch-prompt]))
 
 (defn kill-session-args
@@ -485,17 +495,35 @@
           1)
         (catch Exception _ 1)))))
 
+(defn- source-ident [model member-name]
+  (cond-> {:ns (:ns model)
+           :lang (or (:lang model) :clojure)
+           :src (:src model)
+           :prefix (:prefix model)}
+    (seq (str member-name)) (assoc :name member-name)))
+
+(defn- open-source! [model member-name]
+  (source-window/open-member-window! (:source @!bridge)
+                                     (source-ident model member-name)))
+
+(defn- with-origin [state model]
+  (when model
+    (let [doc (:doc state)]
+      (assoc model
+        :lang (:lang doc)
+        :src (:src doc)
+        :prefix (:prefix doc)))))
+
 (defn- detail-mouse-pressed [state event]
   (when-let [model (:model @!bridge)]
     (let [y (+ (:y event) (:scroll state 0))
           rows (detail/rows model)]
       (cond
         (detail/module-at rows y)
-        (source-window/open-member-window! (:source @!bridge) {:ns (:ns model)})
+        (open-source! model nil)
 
         (detail/member-at rows y)
-        (source-window/open-member-window! (:source @!bridge) (:ns model)
-                                           (detail/member-at rows y))
+        (open-source! model (detail/member-at rows y))
 
         (detail/rel-at rows y)
         (swap! !bridge assoc :pick (detail/rel-at rows y)))))
@@ -581,7 +609,7 @@
                     (apply-proposal-op state op))
                 state)]
     (if-let [id (:detail-id state)]
-      (when-let [model (detail/model (events/card-scene state) id)]
+      (when-let [model (with-origin state (detail/model (events/card-scene state) id))]
         (swap! !bridge assoc :model model)
         (set-card-title! (class-title model)))
       (close-detail-window!))
@@ -597,7 +625,7 @@
 
 (defn- open-card! [state id]
   (let [state (events/select-class state id)]
-    (when-let [model (detail/model (events/card-scene state) (:detail-id state))]
+    (when-let [model (with-origin state (detail/model (events/card-scene state) (:detail-id state)))]
       (ensure-detail-window! model))
     (pin-card! true)
     state))

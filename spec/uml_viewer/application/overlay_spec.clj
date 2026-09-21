@@ -107,4 +107,39 @@
           (should-not= a (overlay/metrics-stamp root)))
         (finally
           (doseq [f (reverse (file-seq (io/file root)))]
+            (io/delete-file f true))))))
+
+  (it "reads :name and :private on mutation forms, and privacy from CRAP rows"
+    (let [root (.getCanonicalPath (io/file "target" "overlay-named"))
+          mut-dir (io/file root ".metrics" "mutate" "demo")]
+      (.mkdirs mut-dir)
+      (spit (io/file root ".metrics" "crap.edn")
+            (pr-str {:entries [{:name "issue" :namespace "demo.app"
+                                :complexity 1 :private false}
+                               {:name "_audit" :namespace "demo.app"
+                                :complexity 1 :private true}]}))
+      (spit (io/file mut-dir "app.edn")
+            (pr-str {:namespace "demo.app"
+                     :forms [{:name "issue" :private false
+                              :killed 2 :survived 1 :uncovered 0 :sites 3}
+                             {:id "def-/legacy" :killed 1 :survived 0
+                              :uncovered 0 :sites 1}]}))
+      (try
+        (let [metrics (overlay/load-metrics root)
+              painted (overlay/apply-metrics
+                        {:hierarchical true
+                         :classes [{:id :app :name "App" :ns "demo.app"}]
+                         :edges []}
+                        metrics)
+              ops (:ops (first (:classes painted)))
+              issue (first (filter #(= "issue" (:name %)) ops))
+              audit (first (filter #(= "_audit" (:name %)) ops))
+              legacy (first (filter #(= "legacy" (:name %)) ops))]
+          (should= 2 (:killed issue))
+          (should-not (:private issue))
+          (should (:private audit))
+          (should (:private legacy))
+          (should= 1 (:killed legacy)))
+        (finally
+          (doseq [f (reverse (file-seq (io/file root)))]
             (io/delete-file f true)))))))

@@ -77,12 +77,23 @@
     (cond
       (str/starts-with? id "defn-/") {:name (subs id 6) :private true}
       (str/starts-with? id "defn/") {:name (subs id 5) :private false}
+      (str/starts-with? id "def-/") {:name (subs id 5) :private true}
+      (str/starts-with? id "def/") {:name (subs id 4) :private false}
       :else nil)))
+
+(defn- form-identity
+  "Clojure snapshots key forms as defn/name. Python and TypeScript snapshots
+   put :name and :private on the form itself."
+  [form]
+  (or (when (:name form)
+        {:name (str (:name form))
+         :private (boolean (:private form))})
+      (form-name (:id form))))
 
 (defn- mutate-by-fn [snapshot]
   (into {}
         (keep (fn [form]
-                (when-let [n (form-name (:id form))]
+                (when-let [n (form-identity form)]
                   [(:name n) (assoc n
                                :killed (:killed form)
                                :survived (:survived form)
@@ -121,7 +132,7 @@
                   :survived (or (:survived mut-fn) 0)
                   :uncovered (or (:uncovered mut-fn) 0)
                   :sites (or (:sites mut-fn) 0))
-    (or (:private op) (:private mut-fn)) (assoc :private true)))
+    (or (:private op) (:private crap-fn) (:private mut-fn)) (assoc :private true)))
 
 (defn- ops-for-class [c crap-fns mut-fns]
   (let [by-name (into {} (map (juxt :name identity) crap-fns))
