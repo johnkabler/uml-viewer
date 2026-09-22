@@ -55,7 +55,7 @@ def _module_id(ns: str, prefix: str) -> str:
 
 
 def _skip_dir(path: Path) -> bool:
-    return any(part in SKIP_DIRS for part in path.parts)
+    return any(part in SKIP_DIRS or part.endswith(".egg-info") for part in path.parts)
 
 
 def _skip_file(path: Path) -> bool:
@@ -464,18 +464,37 @@ def locate(src: str, prefix: str, ns: str, name: str | None = None) -> dict:
     return {"file": str(found), "line": line, "title": title}
 
 
+def _package_prefix(modules: list[str], src: Path) -> str:
+    """Longest dotted path shared by every module that is still a directory.
+
+    src/datateam/datamart/mcp/domain/models.py should prefix down to
+    datateam.datamart.mcp, so the first boxes are domain and its siblings,
+    not a single datateam box.
+    """
+    parts = [m.split(".") for m in modules if m]
+    if not parts:
+        return ""
+    shared = parts[0][:]
+    for piece in parts[1:]:
+        length = 0
+        while length < len(shared) and length < len(piece) and shared[length] == piece[length]:
+            length += 1
+        shared = shared[:length]
+    while shared:
+        prefix = ".".join(shared)
+        below = any(m != prefix and m.startswith(prefix + ".") for m in modules)
+        if below and src.joinpath(*shared).is_dir():
+            return prefix
+        shared.pop()
+    return ""
+
+
 def discover(project: str) -> dict:
     root = Path(project).resolve()
     src = root / "src" if (root / "src").is_dir() else root
     graph = scan(str(src), "")
     modules = [c["ns"] for c in graph["classes"] if not c.get("foreign") and c.get("ns")]
-    prefix = ""
-    parts = [m.split(".") for m in modules if m]
-    if parts and all(p[0] == parts[0][0] for p in parts) and all(len(p) > 1 or (src / p[0]).is_dir() for p in parts):
-        # A shared first segment that is a package directory is the prefix.
-        first = parts[0][0]
-        if (src / first).is_dir() and any(len(p) > 1 for p in parts):
-            prefix = first
+    prefix = _package_prefix(modules, src)
     order = []
     seen = set()
     for ns in sorted(modules):
@@ -486,6 +505,6 @@ def discover(project: str) -> dict:
         if seg and seg not in seen:
             seen.add(seg)
             order.append(seg)
-    title = prefix or root.name
+    title = root.name
     rel_src = "src" if src == root / "src" else "."
     return {"lang": "python", "src": rel_src, "prefix": prefix, "order": order, "title": title}

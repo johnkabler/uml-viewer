@@ -1,5 +1,6 @@
 .cpcache
 .nrepl-port
+.uml-home/
 target
 .DS_Store
 .uml-viewer/

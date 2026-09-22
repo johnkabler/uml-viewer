@@ -28,7 +28,8 @@
   [:application]
   [:adapters]
   [:main]],
- :policy-file "examples/uml-viewer.policy.edn",
+ :policy-file
+ "/Users/jpkabler/projects/personal/uml-viewer/examples/uml-viewer.policy.edn",
  :order
  [:main
   :adapters
@@ -71,6 +72,7 @@
   {:from :main.ir-generator, :to :languages.external, :kind :dependency}
   {:from :main.metrics, :to :languages.external, :kind :dependency}
   {:from :application.events, :to :application.document, :kind :dependency}
+  {:from :main.cli, :to :adapters.core, :kind :dependency}
   {:from :adapters.draw, :to :engine.hit, :kind :dependency}
   {:from :clojure-language.graph-clojure, :to :graph, :kind :implements}
   {:from :adapters.draw, :to :domain.geom, :kind :dependency}
@@ -88,16 +90,19 @@
   {:from :application.ir-generator, :to :graph, :kind :dependency}
   {:from :engine.compose, :to :engine.hit, :kind :dependency}
   {:from :application.detail, :to :engine.hit, :kind :dependency}
+  {:from :main.cli, :to :application.ir-generator, :kind :dependency}
   {:from :adapters.sketch, :to :adapters.source-window, :kind :dependency}
   {:from :adapters.sketch, :to :domain.mailbox, :kind :dependency}
   {:from :adapters.core, :to :adapters.sketch, :kind :dependency}
   {:from :engine.hit, :to :engine.layout, :kind :dependency}
   {:from :application.document, :to :domain.policy, :kind :dependency}
+  {:from :main.cli, :to :main.metrics, :kind :dependency}
   {:from :engine.hit, :to :domain.geom, :kind :dependency}
   {:from :adapters.sketch, :to :languages.external, :kind :dependency}
   {:from :adapters.draw, :to :domain.config, :kind :dependency}
   {:from :main.uml-viewer, :to :clojure-language.source-clojure, :kind :dependency}
   {:from :engine.curve, :to :domain.geom, :kind :dependency}
+  {:from :main.cli, :to :clojure-language.source-clojure, :kind :dependency}
   {:from :engine.layout, :to :domain.config, :kind :dependency}
   {:from :engine.compose, :to :engine.curve, :kind :dependency}
   {:from :main.metrics, :to :application.ir-generator, :kind :dependency}
@@ -112,9 +117,12 @@
   {:from :application.events, :to :engine.hit, :kind :dependency}
   {:from :adapters.sketch, :to :application.overlay, :kind :dependency}
   {:from :application.document, :to :application.overlay, :kind :dependency}
+  {:from :main.cli, :to :clojure-language.graph-clojure, :kind :dependency}
   {:from :languages.external, :to :graph, :kind :implements}
+  {:from :main.cli, :to :languages.external, :kind :dependency}
   {:from :application.document, :to :domain.mailbox, :kind :dependency}
   {:from :engine.route, :to :domain.geom, :kind :dependency}
+  {:from :main.cli, :to :main.discover, :kind :dependency}
   {:from :adapters.source-window, :to :javax.swing, :kind :dependency}
   {:from :adapters.sketch, :to :javax.swing, :kind :dependency}],
  :classes
@@ -231,6 +239,7 @@
    :ns "uml-viewer.languages.external",
    :stereotype nil,
    :level 0}
+  {:id :main.cli, :name "Cli", :ns "uml-viewer.main.cli", :stereotype nil, :level 4}
   {:id :main.discover,
    :name "Discover",
    :ns "uml-viewer.main.discover",

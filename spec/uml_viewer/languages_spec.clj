@@ -230,11 +230,13 @@
 (describe "discover"
   (it "writes a hierarchical policy and agent notes without inventing levels"
     (let [out (io/file "target" "discovered-policy.edn")
-          notes (io/file "spec/fixtures/python_app/.uml-viewer")]
+          notes (io/file "spec/fixtures/python_app/.uml-viewer")
+          grok-rule (io/file "spec/fixtures/python_app/.grok")]
       (try
         (discover/discover! "spec/fixtures/python_app" (.getPath out))
         (let [policy (edn/read-string (slurp out))
-              agent (slurp (io/file notes "AGENT.md"))]
+              agent (slurp (io/file notes "AGENT.md"))
+              rule (slurp (io/file grok-rule "rules" "uml-viewer.md"))]
           (should= :python (:lang policy))
           (should= "myapp" (:prefix policy))
           (should= "src" (:src policy))
@@ -244,8 +246,10 @@
           (should-not (contains? policy :levels))
           (should-not (contains? policy :proposals))
           (should (str/includes? agent "to-agent.edn"))
-          (should (str/includes? agent ":refresh-crap")))
+          (should (str/includes? agent ":refresh-crap"))
+          (should (str/includes? rule "to-agent.edn")))
         (finally
           (io/delete-file out true)
-          (doseq [f (reverse (file-seq notes))]
+          (doseq [dir [notes grok-rule]
+                  f (reverse (file-seq dir))]
             (io/delete-file f true)))))))

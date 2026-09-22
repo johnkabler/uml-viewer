@@ -44,9 +44,13 @@
     (json/read-str out :key-fn keyword)))
 
 (defn- python-argv [args]
-  (into ["poetry" "-C" (str (io/file (tool-home) "analyzers" "python"))
-         "run" "python" "-m" "uml_analyzer"]
-        args))
+  (let [root (io/file (tool-home) "analyzers" "python")
+        venv (io/file root ".venv" "bin" "python")]
+    (if (and (.isFile venv) (.canExecute venv))
+      (into [(.getAbsolutePath venv) "-m" "uml_analyzer"] args)
+      (into ["poetry" "-C" (.getAbsolutePath root)
+             "run" "python" "-m" "uml_analyzer"]
+            args))))
 
 (defn- node-argv [args]
   (into ["node" (str (io/file (tool-home) "analyzers" "typescript" "cli.mjs"))]
@@ -266,20 +270,27 @@
         coverage (case lang
                    :python (str "Run this project's tests under coverage "
                                 "(poetry run coverage json -o coverage.json), then "
-                                "./uml coverage coverage.json")
+                                "uml coverage coverage.json")
                    :typescript (str "Run this project's tests under c8 or Istanbul so "
                                     "coverage-final.json exists, then "
-                                    "./uml coverage coverage-final.json"))
+                                    "uml coverage coverage-final.json"))
         mutate (case lang
                  :python (str "Run mutmut in this project, then "
-                              "./uml mutate .mutmut-cache "
+                              "uml mutate .mutmut-cache "
                               "(or a normalized modules JSON, or a Stryker report)")
                  :typescript (str "Run Stryker, then "
-                                  "./uml mutate reports/mutation-report.json"))]
+                                  "uml mutate reports/mutation-report.json"))]
     (str "You are the UML-viewer companion for a " (name lang) " project. The current\n"
          "working directory is the project being examined.\n"
-         "On launch: write or update a hierarchical policy from the real modules\n"
-         "(./uml discover). Dots after the prefix are the tree. Do not invent\n"
+         "Show the diagram by running `uml` in the background. It scans, writes\n"
+         "the EDN, and opens the window. It does not return while the window is\n"
+         "open. Do not read the uml-viewer source to learn this.\n"
+         "Then watch the mailbox with the monitor tool, after creating the file\n"
+         "if it is missing:\n"
+         "  tail -n 0 -F .uml-viewer/to-agent.edn\n"
+         "Each new line is mail. Pop the head of :queue, handle it, and leave\n"
+         "the monitor running. :regen means `uml refresh` only.\n"
+         "Dots after the prefix are the tree. Do not invent\n"
          "Domain/Engine/Adapters packages. Do not edit the generated IR by hand.\n"
          "After every later source or policy change:\n"
          "1. Keep the policy as module nesting only. Do not re-home a module to\n"
@@ -289,7 +300,7 @@
          "   diagram above Proposals to return to the namespace tree. If instructed,\n"
          "   add a named proposal to :proposals in the policy (default name is a\n"
          "   timestamp) and regenerate the IR.\n"
-         "2. Regenerate the IR with ./uml ir so static complexity lands in\n"
+         "2. Regenerate the IR with uml refresh so static complexity lands in\n"
          "   .metrics/crap.edn and the diagram reloads. " coverage ".\n"
          "3. Mutation is optional and slow. " mutate ".\n"
          "   Uncovered mutants are coverage gaps: keep the snapshot.\n"
@@ -303,7 +314,7 @@
          "{:id n :op :refresh-crap :target {...}}, :refresh-mutate,\n"
          ":refresh-mutate-all, :omit. :target is {:id :ns :kind :class|:component\n"
          " :proposal-id?}. For :refresh-crap run the coverage command above for\n"
-         " that class or the files under that component, then ./uml ir. For\n"
+         " that class or the files under that component, then uml refresh. For\n"
          " :refresh-mutate and :refresh-mutate-all run the mutation command on\n"
          " those files. For :omit, if :proposal-id is set add :id to that\n"
          " proposal's :omit; otherwise add it to policy :omit. Then regenerate.\n"
@@ -311,22 +322,23 @@
          "{:context :real} for the module tree, or {:context :proposal\n"
          " :proposal-id id :name \"...\"} for a named proposal. Treat that as\n"
          "the architecture under discussion until a later :context arrives.\n"
-         "Read .uml-viewer/AGENT.md and pop to-agent.edn at the start of a turn.\n"
-         "Prefer ./uml (fresh start) and ./uml --restart (new JVM, same companion).\n"
-         "Do not start the viewer on launch; it reloads EDN when the file mtime\n"
-         "changes. To restart it: write :quit-for-restart, wait for the JVM to\n"
-         "exit, then ./uml --restart. Do not SIGKILL. Closing the viewer\n"
-         "kills only this companion's tmux session, not other Grok agents. If\n"
-         "this Grok process dies, tmux respawns it in the same pane.\n"
-         "Do not commit or push unless asked.\n")))
+         "Pop to-agent.edn at the start of a turn as well as when the monitor\n"
+         "fires. The window reloads the EDN when its mtime changes. Do not\n"
+         "commit or push unless asked.\n")))
 
 (defn write-agent-md!
-  "Write `.uml-viewer/AGENT.md` so a Cursor agent can follow the mailbox."
+  "Write the companion instructions where each agent looks.
+   `.uml-viewer/AGENT.md` is for a Cursor agent. `.grok/rules/uml-viewer.md`
+   is loaded automatically by the Grok CLI."
   [root lang]
-  (let [dir (io/file root ".uml-viewer")]
-    (.mkdirs dir)
-    (spit (io/file dir "AGENT.md") (agent-rules lang))
-    (.getPath (io/file dir "AGENT.md"))))
+  (let [text (agent-rules lang)
+        agent-dir (io/file root ".uml-viewer")
+        rules-dir (io/file root ".grok" "rules")]
+    (.mkdirs agent-dir)
+    (.mkdirs rules-dir)
+    (spit (io/file agent-dir "AGENT.md") text)
+    (spit (io/file rules-dir "uml-viewer.md") text)
+    (.getPath (io/file agent-dir "AGENT.md"))))
 
 (defn merge-policy
   "Discovered structure plus whatever design choices the existing policy already has.

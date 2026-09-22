@@ -215,6 +215,19 @@
   (let [cmd (mailbox/write-command! (mailbox/to-agent root) op extra)]
     {:cmd cmd :woke? (notify-agent! root)}))
 
+(defn refresh-local!
+  "Rescan and rewrite the diagram when no companion session can be woken.
+   The open window reloads when the EDN mtime changes."
+  [root]
+  (try
+    (let [pb (ProcessBuilder. (into-array String ["uml" "refresh"]))]
+      (.directory pb (io/file (or root ".")))
+      (.redirectOutput pb java.lang.ProcessBuilder$Redirect/INHERIT)
+      (.redirectError pb java.lang.ProcessBuilder$Redirect/INHERIT)
+      (.start pb)
+      true)
+    (catch Exception _ false)))
+
 (defn request-regen!
   "Queue a :regen command and wake Grok. Returns {:cmd :woke?}."
   [root]
@@ -575,14 +588,16 @@
 
 (defn setup
   ([path] (setup path false))
-  ([path restart?]
+  ([path restart?] (setup path restart? false))
+  ([path restart? show?]
    (q/frame-rate 30)
    (q/color-mode :rgb)
    (q/smooth)
    (q/text-font (q/create-font "SansSerif" 14 true))
-   (if restart?
-     (document/restart-state path)
-     (document/waiting-state path))))
+   (cond
+     restart? (document/restart-state path)
+     show? (dissoc (document/load-path path) :waiting)
+     :else (document/waiting-state path))))
 
 (defn- view-dims []
   (let [w (q/width)
@@ -740,10 +755,12 @@
     (cond
       (events/regen-hit? x y w h)
       (let [root (overlay/metrics-root (:path state))
-            {:keys [woke?]} (request-regen! root)]
-        (assoc state :mail-status (if woke?
-                                    "Regen requested."
-                                    "Regen queued; Grok session not attached.")))
+            {:keys [woke?]} (request-regen! root)
+            refreshed? (when-not woke? (refresh-local! root))]
+        (assoc state :mail-status (cond
+                                    woke? "Regen requested."
+                                    refreshed? "Refreshing diagram."
+                                    :else "Could not refresh the diagram.")))
 
       in-sidebar?
       (let [hit (events/inspector-hit state x y w)]
@@ -826,16 +843,19 @@
   ([path source-impl]
    (start! path source-impl false))
   ([path source-impl restart?]
+   (start! path source-impl restart? false))
+  ([path source-impl restart? show?]
    (swap! !bridge assoc :source source-impl)
    (let [root (overlay/metrics-root path)]
-     (if restart?
-       (remember-companion! root)
-       (open-in-terminal! root)))
+     (cond
+       restart? (remember-companion! root)
+       show? nil
+       :else (open-in-terminal! root)))
    (q/sketch
     :title "UML viewer"
     :size [window-width window-height]
     :features [:resizable]
-    :setup (fn [] (setup path restart?))
+    :setup (fn [] (setup path restart? show?))
     :update #'update-state
     :draw #'draw/draw-state
     :mouse-pressed #'on-main-press

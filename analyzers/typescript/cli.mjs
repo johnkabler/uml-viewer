@@ -585,11 +585,14 @@ function main(argv) {
   else if (cmd === "mutate") payload = mutation(arg(argv, "--src"), arg(argv, "--prefix"), arg(argv, "--report"), arg(argv, "--project"));
   else {
     process.stderr.write("usage: cli.mjs scan|locate|discover|coverage|mutate\n");
-    return 2;
+    process.exit(2);
   }
-  process.stdout.write(`${JSON.stringify(payload)}\n`);
-  return 0;
+  const text = `${JSON.stringify(payload)}\n`;
+  const done = () => process.exit(0);
+  // process.exit drops anything still queued on a full pipe. A diagram
+  // scan is larger than the 64KB pipe, so wait until the bytes are taken.
+  if (process.stdout.write(text)) done();
+  else process.stdout.once("drain", done);
 }
 
-const code = main(process.argv.slice(2));
-process.exit(code);
+main(process.argv.slice(2));

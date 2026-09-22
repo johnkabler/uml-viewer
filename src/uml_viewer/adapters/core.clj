@@ -9,6 +9,7 @@
        "                    :display unless the associated agent recycles\n"
        "                    the window with :uml-viewer-restart, or you press R.\n"
        "\n"
+       "  --show            Open the diagram now. Does not start a companion.\n"
        "  --restart         Associated agent only (via :uml-viewer-restart).\n"
        "                    New JVM, keep the existing Grok tmux session.\n"
        "                    Reloads the last view (depth, pan, zoom, proposal).\n"
@@ -16,24 +17,29 @@
        "\n"
        "  -h, --help        Print this help and exit.\n"))
 
+(def ^:private flag-args #{"--help" "-h" "--restart" "--show"})
+
 (defn parse-args
-  "EDN path and flags. `--restart` skips spawning a new agent."
+  "EDN path and flags. `--restart` skips spawning a new agent.
+   `--show` draws the file immediately and does not start a companion."
   [args]
   (let [args (keep identity args)
         help? (boolean (some #{"--help" "-h"} args))
         restart? (boolean (some #{"--restart"} args))
-        path (->> args (remove #{"--help" "-h" "--restart"}) first)]
+        show? (boolean (some #{"--show"} args))
+        path (->> args (remove flag-args) first)]
     {:help? help?
      :restart? restart?
+     :show? show?
      :path (or path "examples/library.edn")}))
 
 (defn start!
   "Launch the viewer. `source-impl` satisfies `LanguageSource`."
   [source-impl & args]
-  (let [{:keys [path restart? help?]} (parse-args args)]
+  (let [{:keys [path restart? show? help?]} (parse-args args)]
     (if help?
       (do (print help-text) :help)
       (do
-        (sketch/start! path source-impl restart?)
+        (sketch/start! path source-impl restart? show?)
         (println "Watching" path)
         (println "Double-click a class for its card. Scroll to pan (Shift-scroll for horizontal). Ctrl+/− zoom; Ctrl+0 resets. R reloads. Click the real diagram above Proposals, or a proposal to show it.")))))

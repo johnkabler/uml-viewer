@@ -1,0 +1,164 @@
+#!/bin/zsh
+# One command for any project. Install once with: bin/uml install
+# Then, in the project you want to watch: uml
+set -euo pipefail
+
+resolve_link() {
+  local p="$1"
+  if [[ "$p" != /* ]]; then
+    p="$(pwd)/$p"
+  fi
+  while [[ -L "$p" ]]; do
+    local dir target
+    dir="$(cd "$(dirname "$p")" && pwd)"
+    target="$(readlink "$p")"
+    if [[ "$target" != /* ]]; then
+      p="$dir/$target"
+    else
+      p="$target"
+    fi
+  done
+  echo "$p"
+}
+
+BIN="$(resolve_link "$0")"
+TOOL="$(cd "$(dirname "$BIN")/.." && pwd)"
+
+export PATH="/opt/homebrew/bin:${HOME}/.local/bin:${PATH}"
+if ! command -v node >/dev/null 2>&1 && [[ -d "${HOME}/.nvm/versions/node" ]]; then
+  latest="$(ls -d "${HOME}/.nvm/versions/node"/v* 2>/dev/null | tail -1 || true)"
+  if [[ -n "${latest:-}" ]]; then
+    export PATH="${latest}/bin:${PATH}"
+  fi
+fi
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+doctor() {
+  local ok=0
+  local check
+  local ver
+  for check in java clj git; do
+    if have "$check"; then
+      ver="$($check --version 2>&1 || true)"
+      echo "ok    $check (${ver%%$'\n'*})"
+    else
+      echo "missing  $check"
+      ok=1
+    fi
+  done
+  if have poetry; then
+    ver="$(poetry --version 2>&1 || true)"
+    echo "ok    poetry (${ver%%$'\n'*})"
+  else
+    echo "missing  poetry    (needed to scan Python)"
+    ok=1
+  fi
+  if have node && have npm; then
+    echo "ok    node ($(node --version)) / npm ($(npm --version))"
+  else
+    echo "missing  node and npm    (needed to scan TypeScript)"
+    ok=1
+  fi
+  if have tmux; then
+    echo "ok    tmux (optional, only for the Grok companion)"
+  else
+    echo "note  tmux is not installed. The window still opens. The Grok companion will not."
+  fi
+  if [[ -x "$TOOL/analyzers/python/.venv/bin/python" ]]; then
+    echo "ok    Python scanner"
+  else
+    echo "note  Python scanner is not installed yet. The next uml run installs it."
+  fi
+  if [[ -d "$TOOL/analyzers/typescript/node_modules/typescript" ]]; then
+    echo "ok    TypeScript scanner"
+  else
+    echo "note  TypeScript scanner is not installed yet. The next uml run installs it."
+  fi
+  echo "tool  $TOOL"
+  return "$ok"
+}
+
+if [[ "${1:-}" == "install" ]]; then
+  mkdir -p "${HOME}/.local/bin"
+  ln -sfn "$TOOL/bin/uml" "${HOME}/.local/bin/uml"
+  echo "Installed ${HOME}/.local/bin/uml -> $TOOL/bin/uml"
+  grok_home="${GROK_HOME:-$HOME/.grok}"
+  if [[ -d "$grok_home" && -d "$TOOL/.grok/skills/uml-viewer" ]]; then
+    mkdir -p "$grok_home/skills"
+    ln -sfn "$TOOL/.grok/skills/uml-viewer" "$grok_home/skills/uml-viewer"
+    echo "Installed $grok_home/skills/uml-viewer"
+  fi
+  case ":$PATH:" in
+    *":${HOME}/.local/bin:"*) ;;
+    *) echo "Add ${HOME}/.local/bin to PATH, then open a new shell." ;;
+  esac
+  exit 0
+fi
+
+if [[ "${1:-}" == "doctor" ]]; then
+  doctor
+  exit $?
+fi
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || "${1:-}" == "help" ]]; then
+  cat <<'EOF'
+usage: uml [command]
+
+  (no args)       scan this project, write the diagram, open the window
+  refresh         scan and write the diagram, leave the window alone
+  show [file]     open a diagram that already exists
+  coverage FILE   import a coverage.py or Istanbul JSON report
+  mutate FILE     import a mutmut, Stryker, or normalized mutation report
+  doctor          check Java, Clojure, Poetry, Node, and the scanners
+  install         link uml onto ~/.local/bin and the Grok skill onto ~/.grok/skills
+  help
+
+Run it from the project you want to watch. The first screen is the diagram.
+Add :levels to uml-viewer.policy.edn when you want dependency-rule arrows
+to turn red, then run uml again.
+EOF
+  exit 0
+fi
+
+if ! have java || ! have clj; then
+  echo "uml needs Java and the Clojure CLI. Run: uml doctor" >&2
+  exit 1
+fi
+
+if have poetry && [[ ! -x "$TOOL/analyzers/python/.venv/bin/python" ]]; then
+  echo "Installing the Python scanner..."
+  poetry -C "$TOOL/analyzers/python" install --no-interaction
+fi
+if have npm && [[ ! -d "$TOOL/analyzers/typescript/node_modules/typescript" ]]; then
+  echo "Installing the TypeScript scanner..."
+  npm --prefix "$TOOL/analyzers/typescript" install --silent
+fi
+
+HOME_DIR="$TOOL/.uml-home"
+mkdir -p "$HOME_DIR"
+CP_FILE="$HOME_DIR/classpath"
+# `clj -Spath` prints `src` relative to the tool checkout. The window is
+# launched from the project being viewed, so every entry has to be absolute.
+if [[ ! -s "$CP_FILE" || "$TOOL/deps.edn" -nt "$CP_FILE" || "$(head -c 1 "$CP_FILE")" != "/" ]]; then
+  echo "Resolving the viewer classpath..."
+  raw="$(
+    cd "$TOOL"
+    CLJ_JVM_OPTS="-Duser.home=$HOME_DIR" JAVA_OPTS="-Duser.home=$HOME_DIR" \
+      clj -Spath -M:run
+  )"
+  abs=""
+  IFS=':' read -rA parts <<< "$raw"
+  for entry in "${parts[@]}"; do
+    [[ -z "$entry" ]] && continue
+    if [[ "$entry" != /* ]]; then
+      entry="$TOOL/$entry"
+    fi
+    abs+="${abs:+:}$entry"
+  done
+  printf '%s\n' "$abs" > "$CP_FILE.tmp"
+  mv "$CP_FILE.tmp" "$CP_FILE"
+fi
+
+export UML_VIEWER_HOME="$TOOL"
+exec java -cp "$(cat "$CP_FILE")" clojure.main -m uml-viewer.main.cli "$@"

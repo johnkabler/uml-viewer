@@ -14,87 +14,70 @@ another module is an edge between those two modules.
 ## What you need
 
 The window is a Java desktop app. Python and Node are used only to parse
-those languages, and they live inside the tool checkout, not inside the
+those languages, and they live inside this tool checkout, not inside the
 project you are viewing.
 
 | Tool | Required for |
 |------|----------------|
-| Git | Installing the tool into a project |
 | Java 17+ | The viewer window |
-| [Clojure CLI](https://clojure.org/guides/install_clojure) (`clj`) | Starting the viewer and writing the diagram |
+| [Clojure CLI](https://clojure.org/guides/install_clojure) (`clj`) | Resolving the viewer the first time |
+| Git | Cloning this tool |
 | [Poetry](https://python-poetry.org/docs/#installation) | Scanning a Python project |
 | Node.js and npm | Scanning a TypeScript project |
-| tmux | The optional Grok companion (the window still opens without it) |
+| tmux | Optional. Only the Grok companion uses it. The window opens without it |
 
-Install Clojure on macOS with `brew install clojure`. Confirm the three
-commands the viewer will call:
+Install Clojure on macOS with `brew install clojure`. Check the machine:
 
 ```bash
-java -version
-clj --version
-git --version
+bin/uml doctor
 ```
 
-Install Poetry if the project is Python, and Node if it is TypeScript.
-You need the one that matches the project. A project that is both can
-install both; each diagram is one language.
+## Install the command
 
-## Install into a project
+Once, from this checkout:
 
-Run this from the root of the repository you want to watch. It clones
-this tool into a gitignored directory, installs the scanners, and writes
-`./uml`. It does not start the window.
+```bash
+bin/uml install
+```
+
+That links `uml` onto `~/.local/bin`. Open a new shell if that directory
+is not already on `PATH`.
+
+## Open a project
+
+From the root of the repository you want to watch:
 
 ```bash
 cd /path/to/your-project
-curl -fsSL https://raw.githubusercontent.com/johnkabler/uml-viewer/master/scripts/get-uml-viewer -o get-uml-viewer
-chmod +x get-uml-viewer
-./get-uml-viewer --install-only
+uml
 ```
 
-What that does:
+That is the whole flow. `uml` detects Python or TypeScript, writes
+`uml-viewer.policy.edn` from the real directories, writes `uml-viewer.edn`,
+and opens the window on the diagram. It does not invent layers. It does
+not start a companion, and it does not wait for you to press **R**.
 
-- Clones the tool into `.uml-viewer/uml-viewer/` (a nested git repo, ignored
-  by your project).
-- Adds `.uml-viewer/` and `/uml` to `.gitignore`. `./uml` contains an
-  absolute path to the checkout on this machine, so leave it uncommitted.
-- Runs `poetry install` in the tool's Python scanner and `npm install` in
-  the tool's TypeScript scanner.
-- Writes `./uml` in the project root.
+The first run downloads the viewer jars into this checkout (`.uml-home/`)
+and installs the scanner for the language it finds. Later runs reuse that.
 
-`UML_VIEWER_REPO_URL` and `UML_VIEWER_REF` override the clone (default
-`https://github.com/johnkabler/uml-viewer.git`, branch `master`).
-Run `./get-uml-viewer --install-only` again later to update the checkout.
+`uml` also adds a gitignore block for `.uml-viewer/`, `.metrics/`, and
+`uml-viewer.edn`. Keep `uml-viewer.policy.edn`. That is the file you edit
+when you want box order, a library drawn as an oval, or the dependency
+rule. After you edit it, run `uml` again.
 
-Omit `--install-only` and the script starts the viewer immediately. Prefer
-the steps below the first time, so a diagram exists before the window opens.
+| Command | What it does |
+|---------|----------------|
+| `uml` | Scan, write the diagram, open the window |
+| `uml refresh` | Scan and write the diagram |
+| `uml show [file.edn]` | Open a diagram that already exists |
+| `uml coverage <file>` | Import a coverage.py or Istanbul JSON report |
+| `uml mutate <file>` | Import a mutmut, Stryker, or normalized mutation report |
+| `uml doctor` | Check Java, Clojure, Poetry, Node, and the scanners |
+| `uml install` | Link the command onto `~/.local/bin` |
+| `uml help` | Print the command list |
 
-## First diagram
-
-Discover reads the tree and writes `uml-viewer.policy.edn`. It records the
-language, the source root, the prefix, and the real top-level directories.
-It does not invent layers or proposals. Rank is something you or the agent
-set later; nesting is not layering.
-
-Generate writes `uml-viewer.edn` (do not edit that file) and a static
-complexity snapshot at `.metrics/crap.edn`. That snapshot is what puts
-function names on the class card before anyone has run tests.
-
-```bash
-./uml discover
-./uml ir
-./uml
-```
-
-The window opens on `uml-viewer.edn` and stays blank until you press **R**
-or a companion sends `:display`. The status line says **Waiting for agent
-to create diagram.** Press **R**. You should see one box per top-level
-directory, with the modules inside it.
-
-`./uml` also tries to open a Terminal running Grok in tmux. If you use
-Cursor (or any other agent) instead, leave that session alone or close the
-UML window when you are done — closing the window stops only the companion
-this viewer started. See [Working with an agent](#working-with-an-agent).
+Add `:levels` to the policy when you want inward dependencies to stay grey
+and outward ones to turn red. Inner groups come first. Then run `uml` again.
 
 ### Python
 
@@ -104,14 +87,16 @@ Layout the scanner expects:
 your-project/
   src/myapp/domain/models.py
   src/myapp/app/loan.py
-  uml-viewer.policy.edn    # written by ./uml discover
-  uml-viewer.edn           # written by ./uml ir
+  uml-viewer.policy.edn    # written by uml
+  uml-viewer.edn           # written by uml; gitignored
 ```
 
 `src/myapp/domain/models.py` with prefix `myapp` becomes the module
 `:domain.models`. `__init__.py` is the package module itself. If there is
 no `src/` directory, discover scans the project root and sets `:src` to
-`"."`.
+`"."`. When every module shares a longer path, such as
+`src/datateam/datamart/mcp/...`, that whole path is the prefix and the
+first boxes are the directories under it.
 
 A first policy looks like this:
 
@@ -136,10 +121,10 @@ regenerate:
 ```
 
 ```bash
-./uml ir
+uml
 ```
 
-Press **R** in the window if it is already open. A dependency from `:app`
+A dependency from `:app`
 to `:domain` is allowed. A dependency from `:domain` to `:app` is red.
 
 The scanner skips `tests/`, `test/`, `*_test.py`, `test_*.py`,
@@ -177,41 +162,27 @@ The scanner skips `node_modules`, `dist`, `*.test.ts`, `*.spec.ts`,
 `*.d.ts`, and `__tests__/`.
 
 Discover writes a policy with `:lang :typescript` and `:prefix ""`. Add
-`:levels` the same way as Python when you want red arrows, then `./uml ir`.
+`:levels` the same way as Python when you want red arrows, then run `uml`.
 
 ### A second package
 
-A monorepo is one diagram per package. Point `:src` at that package's
-source tree (and `:prefix` at its Python package name, if it has one).
-A second package is a second policy file, passed explicitly:
-
-```bash
-./uml discover . packages/web/uml-viewer.policy.edn
-./uml ir packages/web/uml-viewer.policy.edn packages/web/uml-viewer.edn
-./uml packages/web/uml-viewer.edn
-```
+A monorepo is one diagram per package. `cd` into the package that has its
+own `src/` (and its own `tsconfig.json`, for TypeScript) and run `uml`
+there.
 
 ## Day to day
 
-| Command | What it does |
-|---------|----------------|
-| `./uml` | Opens the window on `uml-viewer.edn` if that file exists. Press **R** the first time. |
-| `./uml path/to/file.edn` | Opens the window on that diagram. |
-| `./uml discover` | Rewrites the policy's tree (`:src`, `:prefix`, `:order`) from the code. Keeps `:levels` and `:proposals`. |
-| `./uml ir` | Regenerates `uml-viewer.edn` and `.metrics/crap.edn` from the policy. |
-| `./uml ir policy.edn out.edn` | Same, with an explicit policy and output path. |
-| `./uml coverage <file>` | Imports a coverage report and recomputes CRAP. |
-| `./uml mutate <file>` | Imports a mutation report into `.metrics/mutate/`. |
-| `./uml --restart` | New window, same companion, last pan/zoom/depth. The companion uses this. You usually do not. |
-| `./uml --help` | Prints the command list. |
+Run `uml` again after the tree changes. It re-reads the directories, keeps
+`:levels` and `:proposals` you already wrote, regenerates `uml-viewer.edn`
+and `.metrics/crap.edn`, and opens the window. Do not hand-edit
+`uml-viewer.edn`.
 
-After `./uml ir`, the open window reloads when you press **R**, and it
-reloads on its own once it is showing a diagram and the EDN or `.metrics/`
-changes.
+An open window reloads when the EDN or `.metrics/` changes. **R** reloads
+immediately.
 
-Edit `uml-viewer.policy.edn` when you want a library drawn as an oval, a
-different box order, or a dependency treated as an association. Then
-`./uml ir`. Do not hand-edit `uml-viewer.edn`.
+`./uml` from an older per-project install still starts the companion and
+waits for `:display`. Prefer the `uml` command above. `--restart` is only
+for that companion recycling its own window.
 
 ## Coverage and mutation
 
@@ -228,7 +199,7 @@ From the project you are viewing, with that project's own environment:
 ```bash
 poetry run coverage run -m pytest
 poetry run coverage json -o coverage.json
-./uml coverage coverage.json
+uml coverage coverage.json
 ```
 
 Any `coverage.py` JSON report works. The command joins executed and missing
@@ -239,7 +210,7 @@ too. mutmut writes a SQLite cache; pass that file:
 
 ```bash
 poetry run mutmut run
-./uml mutate .mutmut-cache
+uml mutate .mutmut-cache
 ```
 
 A [Stryker](https://stryker-mutator.io/) JSON report works for Python as
@@ -249,15 +220,15 @@ well. Pass the report path you actually got.
 
 ```bash
 npx c8 --reporter json npm test
-./uml coverage coverage/coverage-final.json
+uml coverage coverage/coverage-final.json
 ```
 
-Istanbul `coverage-final.json` is the same shape. Point `./uml coverage`
+Istanbul `coverage-final.json` is the same shape. Point `uml coverage`
 at the file your runner wrote.
 
 ```bash
 npx stryker run
-./uml mutate reports/mutation-report.json
+uml mutate reports/mutation-report.json
 ```
 
 If Stryker writes the JSON somewhere else, pass that path. A normalized
@@ -270,18 +241,27 @@ that queue, edits policy or code, regenerates, and can tell the viewer
 which file to show. Nothing in the viewer starts Cursor. You talk to the
 agent you already have.
 
-`./uml discover` and `./uml ir` write `.uml-viewer/AGENT.md` for Python
-and TypeScript. At the start of a turn, the agent should read that file
-and pop `.uml-viewer/to-agent.edn`.
+`uml` writes two instruction files for Python and TypeScript.
+`.uml-viewer/AGENT.md` is what a Cursor agent should read.
+`.grok/rules/uml-viewer.md` is the same text, and the Grok CLI loads
+every markdown file in that directory on its own.
+
+`bin/uml install` also links a user skill at `~/.grok/skills/uml-viewer`.
+In a repo that does not have the viewer yet, start Grok and ask it to
+install or open the diagram, or run `/uml-viewer`. The skill runs `uml`
+when the command is already on `PATH`, and `bin/uml install` when you are
+in the tool checkout and the command is missing. It does not clone the
+tool into the project. After the first `uml`, Grok follows
+`.grok/rules/uml-viewer.md` in that repo without the skill.
 
 A short version of what the agent is supposed to do:
 
-1. On the first turn, `./uml discover` if the policy is missing, then
-   `./uml ir`. Do not invent packages. Do not invent `:proposals`.
+1. On the first turn, run `uml refresh` if the diagram is missing. Do not
+   invent packages. Do not invent `:proposals`.
 2. When you set architectural rank, the agent adds `:levels` to the policy
-   and regenerates. Inner (higher-level) groups come first.
-3. After code or policy changes, `./uml ir`. Refresh coverage with the
-   project's test command and `./uml coverage`. Mutation is optional.
+   and runs `uml refresh`. Inner (higher-level) groups come first.
+3. After code or policy changes, `uml refresh`. Refresh coverage with the
+   project's test command and `uml coverage`. Mutation is optional.
 4. Pop each mailbox command after handling it. Do not overwrite the file.
 
 Right-click a box for **Refresh CRAP**, **Refresh Mutation**, **Refresh
@@ -336,14 +316,14 @@ stray `--restart` skips spawning a companion. Do not SIGKILL the window.
 
 ## Policy
 
-The diagram is generated. Edit the policy, then `./uml ir`.
+The diagram is generated. Edit the policy, then `uml`.
 
 | Key | Role |
 |-----|------|
 | `:lang` | `:python`, `:typescript`, or `:clojure` |
 | `:src` | Source root, usually `"src"` |
 | `:prefix` | Strip this from each module id. Remaining dots are the tree. Empty for TypeScript |
-| `:out` | Where `./uml ir` writes the diagram. Discover uses `uml-viewer.edn` |
+| `:out` | Where `uml` writes the diagram. Discover uses `uml-viewer.edn` |
 | `:hierarchical` | Module tree (this is the normal mode) |
 | `:order` | Order of **existing** top-level directories, not new component names |
 | `:levels` | Groups of those directories, **inner (higher-level) first**. Same group = same rank. Omit it and nothing is marked red |
